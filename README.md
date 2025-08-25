@@ -147,9 +147,22 @@ export async function muvi_Router(request) {
 </script>
 ```
 
+codex/create-complete-muvi-proxy-repository
 ## 🛡️ Security
 - Nur Pfade unter `/muvi` erlaubt.
 - Token TTL 30 s, pfadspezifische Signatur.
 - Optionaler Referer-Check auf `muvi.com` (leerer Referer erlaubt).
 - CSP: `frame-src` nur `self` und `https://flixtake.de`.
+- =======
+👉 Einfügen unter **Einstellungen → Erweitert → Benutzerdefinierter Code** (nur auf `/muvi`-Seiten aktivieren).
+
+---
+
+## 🛡️ Sicherheitshinweise
+
+- **Tokens sind nur ~30 Sekunden gültig** → erschwert direkte Zugriffe.  
+- **Pfadbindung**: Token ist nur für den angefragten Pfad gültig.  
+- **Optionaler Referer-Check**: blockt Aufrufe außerhalb `muvi.com`.  
+- **helmet CSP**: nur `self` + `https://flixtake.de` dürfen eingebettet werden.  
+ main
 
