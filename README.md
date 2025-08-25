@@ -1,49 +1,21 @@
-# Muvinet Proxy
+# muvi-proxy
 
-Dieses Repository enthält eine Node.js/Express-App, die als **Parent-Proxy** für deine Wix-Unterseite fungiert.  
-Ziel: Unter [https://muvi.com](https://muvi.com) soll die Unterseite [https://flixtake.de/muvi](https://flixtake.de/muvi) eingebettet werden, sodass es für den User wie eine eigenständige Website wirkt – inklusive **URL-Synchronisation** und **Token-Gate** (Whitelist).
+Node.js/Express-App, die als Parent-Proxy für die Wix-Unterseite `/muvi` dient.
+Sie synchronisiert die Browser-URL mit der Navigation im eingebetteten iFrame und schützt die Wix-Routen über ein kurzlebiges HMAC-Token.
 
----
+## 🚀 Schnellstart
 
-## ✨ Features
-
-- **iFrame-Wrapper**: `muvi.com` lädt Inhalte von `flixtake.de/muvi/...`
-- **Dynamische URL-Synchronisation**: Navigation im iFrame aktualisiert die Browser-URL – und umgekehrt.
-- **Token-Gate**: Zugriff auf die Wix-Unterseite `/muvi/*` ist nur mit einem gültigen, kurzlebigen Token möglich, das vom Proxy (`muvi.com`) erzeugt wird.
-- **Restriktion**: Nur Pfade unter `/muvi` sind erlaubt – alles andere wird blockiert oder umgeleitet.
-- **Sicherheitsmaßnahmen**: HMAC-Signaturen, kurze Token-Lebenszeit, optionale Referer-Prüfung.
-
----
-
-## 📂 Repository-Struktur
-
-```
-Muvinet/
-├─ package.json
-├─ server.js
-├─ .env.example
-├─ public/
-│  ├─ index.html
-│  ├─ client.js
-│  └─ styles.css
-└─ README.md
-```
-
----
-
-## ⚙️ Installation & Setup
-
-### 1. Klonen & Abhängigkeiten installieren
 ```bash
-git clone https://github.com/<OWNER>/Muvinet.git
-cd Muvinet
 npm install
+npm start
 ```
 
-### 2. Environment konfigurieren
-Kopiere `.env.example` → `.env` und passe Werte an:
+Die App lauscht standardmäßig auf `http://localhost:3000`.
 
-```
+## ⚙️ Environment
+Kopiere `.env.example` zu `.env` und passe ggf. Werte an:
+
+```env
 PUBLIC_BASE_ORIGIN=https://muvi.com
 SOURCE_BASE_ORIGIN=https://flixtake.de
 SOURCE_BASE_PATH=/muvi
@@ -52,53 +24,31 @@ TOKEN_TTL_SECONDS=30
 PORT=3000
 ```
 
-> **Wichtig:** Der Secret-Wert muss identisch im **Wix Secrets Manager** als `MUVI_IFRAME_GATE_SECRET` hinterlegt sein.
+`MUVI_IFRAME_GATE_SECRET` muss identisch im Wix Secrets Manager hinterlegt sein.
 
-### 3. Starten
-```bash
-npm start
+## 📦 Deploy auf Plesk
+1. Repository deployen oder Dateien hochladen.
+2. In Plesk **Node.js-App** aktivieren (Startup file: `server.js`, Node ≥18).
+3. ENV-Variablen setzen (siehe `.env.example`).
+4. `npm install` ausführen und App starten.
+
+## 🔐 Token-Gate Ablauf
+1. Client fragt beim Proxy `/gate/token?path=/muvi/...` an.
+2. Proxy erzeugt Token:
+   `token = base64url(exp + "." + HMAC_SHA256(secret, path + "|" + exp))`
+3. Token wird als `?token=` Query an die iFrame-URL gehängt.
+4. Wix-Router verifiziert Token, Pfad und Ablaufzeit (TTL, default 30 s).
+
+Beispiel-iFrame-URL:
+```
+https://flixtake.de/muvi/netflix/titel-123?token=BASE64URL
 ```
 
-App läuft unter `http://localhost:3000`.
+> Die Wix-Seite muss einbettbar sein (kein `X-Frame-Options: DENY/SAMEORIGIN`).
 
----
+## 🧩 Wix Velo Codes
 
-## 🚀 Deployment (z. B. Plesk)
-
-1. Repository deployen oder Dateien hochladen.  
-2. In Plesk → **Node.js App aktivieren**.  
-   - Startup file: `server.js`  
-   - Node-Version ≥ 18  
-3. ENV-Variablen setzen (siehe `.env.example`).  
-4. `npm install` ausführen.  
-5. App starten.
-
----
-
-## 🔑 Funktionsweise des Token-Gates
-
-1. Der Proxy (`muvi.com`) generiert pro Pfad ein Token:  
-   ```
-   token = base64url(exp + "." + HMAC_SHA256(secret, path + "|" + exp))
-   ```
-   - `exp` = Ablaufzeit (jetzt + TTL in Sekunden).  
-   - `secret` = gemeinsames Secret (Proxy + Wix).  
-
-2. Das Token wird als Query-Parameter an die iFrame-URL gehängt:  
-   ```
-   https://flixtake.de/muvi/xyz?token=...
-   ```
-
-3. Auf der Wix-Seite prüft ein **Router** (Velo-Code), ob Token gültig ist.  
-   → Ohne gültiges Token: Redirect nach `https://flixtake.de`.
-
----
-
-## 🖥️ Wix Integration
-
-Damit das Ganze funktioniert, brauchst du **zwei Bausteine in Wix**:
-
-### A) Router (backend/routers.js)
+### A) Router – `backend/routers.js`
 ```js
 import { ok, redirect, forbidden } from 'wix-router';
 import { hmacSha256, timingSafeEqual } from 'wix-crypto';
@@ -126,72 +76,70 @@ async function verifyToken({ token, path }) {
 export async function muvi_Router(request) {
   const { path, query, headers } = request;
   const fullPath = '/' + path.join('/');
+  const token = query.token;
+  const referer = headers.referer || headers['referer'] || '';
 
+  // nur /muvi erlauben
   if (!fullPath.toLowerCase().startsWith('/muvi')) {
     return redirect('https://flixtake.de', { status: 302 });
   }
 
-  const okToken = await verifyToken({ token: query.token, path: fullPath });
+  const okToken = await verifyToken({ token, path: fullPath });
   if (!okToken) return redirect('https://flixtake.de', { status: 302 });
 
-  // Optional: Referer-Check
-  const referer = headers.referer || headers['referer'] || '';
+  // optionaler Referer-Check auf muvi.com
   const ALLOWED_PARENT = 'muvi.com';
   if (referer && !referer.includes(ALLOWED_PARENT)) {
-    // return forbidden(); // falls du streng sein willst
+    // return forbidden(); // strenger
   }
 
   return ok('muvi-router-page', { someData: { path: fullPath } });
 }
 ```
 
-👉 Einrichtung in Wix:  
-- **Secrets Manager** → Secret `MUVI_IFRAME_GATE_SECRET` anlegen.  
-- **Router mit Präfix /muvi** erstellen.  
-- Router-Seitenvorlage `muvi-router-page` verknüpfen.  
+### B) Client-Snippet – URL-Sync
+**Einstellungen → Erweitert → Benutzerdefinierter Code** (nur auf Seiten unter `/muvi`).
 
----
-
-### B) Client-Snippet (Custom Code auf /muvi Seiten)
 ```html
 <script>
 (function(){
-  function notifyParent(){
+  function notifyParent() {
     try {
       var msg = {
-        type:'ROUTE_CHANGE',
-        path:location.pathname,
-        search:location.search||'',
-        hash:location.hash||''
+        type: 'ROUTE_CHANGE',
+        path: window.location.pathname,
+        search: window.location.search || '',
+        hash: window.location.hash || ''
       };
-      parent.postMessage(msg, 'https://muvi.com');
+      // Parent ist https://muvi.com
+      window.parent.postMessage(msg, 'https://muvi.com');
     } catch(e){}
   }
 
   document.addEventListener('click', function(e){
     var a = e.target.closest('a[href]');
     if (!a) return;
-    var u = new URL(a.href, location.origin);
-    if (u.origin===location.origin && u.pathname.toLowerCase().startsWith('/muvi')) {
+    var url = new URL(a.href, window.location.origin);
+    if (url.origin === window.location.origin && url.pathname.toLowerCase().startsWith('/muvi')) {
       setTimeout(notifyParent, 50);
     }
   }, true);
 
-  addEventListener('popstate', notifyParent);
-  addEventListener('hashchange', notifyParent);
+  window.addEventListener('popstate', notifyParent);
+  window.addEventListener('hashchange', notifyParent);
 
-  addEventListener('message', function(ev){
-    if (ev.origin !== 'https://muvi.com') return;
-    var d = ev.data||{};
-    if (d.type==='PARENT_NAVIGATE' && typeof d.url==='string') {
+  window.addEventListener('message', function(event){
+    if (event.origin !== 'https://muvi.com') return;
+    var data = event.data || {};
+    if (data.type === 'PARENT_NAVIGATE' && typeof data.url === 'string') {
       try {
-        var t = new URL(d.url);
-        if (t.origin===location.origin && t.pathname.toLowerCase().startsWith('/muvi')) {
-          if (t.href!==location.href) location.href = t.href;
+        var target = new URL(data.url);
+        if (target.origin === window.location.origin && target.pathname.toLowerCase().startsWith('/muvi')) {
+          if (target.href !== window.location.href) window.location.href = target.href;
         }
       } catch(e){}
     }
-    if (d.type==='PARENT_READY') notifyParent();
+    if (data.type === 'PARENT_READY') notifyParent();
   });
 
   document.addEventListener('DOMContentLoaded', notifyParent);
@@ -199,6 +147,13 @@ export async function muvi_Router(request) {
 </script>
 ```
 
+codex/create-complete-muvi-proxy-repository
+## 🛡️ Security
+- Nur Pfade unter `/muvi` erlaubt.
+- Token TTL 30 s, pfadspezifische Signatur.
+- Optionaler Referer-Check auf `muvi.com` (leerer Referer erlaubt).
+- CSP: `frame-src` nur `self` und `https://flixtake.de`.
+- =======
 👉 Einfügen unter **Einstellungen → Erweitert → Benutzerdefinierter Code** (nur auf `/muvi`-Seiten aktivieren).
 
 ---
@@ -209,5 +164,5 @@ export async function muvi_Router(request) {
 - **Pfadbindung**: Token ist nur für den angefragten Pfad gültig.  
 - **Optionaler Referer-Check**: blockt Aufrufe außerhalb `muvi.com`.  
 - **helmet CSP**: nur `self` + `https://flixtake.de` dürfen eingebettet werden.  
-
+ main
 
