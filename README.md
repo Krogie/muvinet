@@ -210,16 +210,4 @@ export async function muvi_Router(request) {
 - **Optionaler Referer-Check**: blockt Aufrufe außerhalb `muvi.com`.  
 - **helmet CSP**: nur `self` + `https://flixtake.de` dürfen eingebettet werden.  
 
----
 
-## ✅ ToDo für dich
-
-1. Repo initialisieren (`README.md` erstellen).  
-2. App lokal/Plesk starten.  
-3. ENV setzen & Secrets in Wix hinterlegen.  
-4. Router & Snippet in Wix einbauen.  
-5. Test: `https://muvi.com/netflix/xyz` → lädt `https://flixtake.de/muvi/netflix/xyz`.
-
----
-
-Fertig 🎬 – jetzt verhält sich **muvi.com** wie eine eigenständige Seite, die sicher deine Wix-Unterseite spiegelt.
